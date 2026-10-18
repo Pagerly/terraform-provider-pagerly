@@ -4,7 +4,9 @@ page_title: "pagerly_team Resource"
 
 # pagerly_team
 
-A team with its round-robin on-call rotation. People are given as emails.
+A team. Its on-call comes either from a round-robin **rotation** that Pagerly runs, or from
+an external schedule it **sync**s with: PagerDuty, Opsgenie, Datadog On-Call, JSM Ops or
+Google Calendar. Set exactly one of `rotation` or `sync`. People are given as emails.
 
 ```hcl
 resource "pagerly_team" "payments" {
@@ -26,19 +28,43 @@ resource "pagerly_team" "payments" {
 }
 ```
 
+### Synced from PagerDuty (or Opsgenie, Datadog, JSM Ops, Google Calendar)
+
+```hcl
+resource "pagerly_team" "platform" {
+  name          = "Platform"
+  timezone      = "UTC"
+  slack_channel = "C0123456789"
+
+  sync = {
+    source      = "pagerduty"   # pagerduty | opsgenie | datadog | jsmops | gcal
+    schedule_id = "PABC123"     # the schedule's id in that tool
+  }
+}
+```
+
+The source must already be connected under **Scheduling Integrations** in Pagerly. The
+schedule id is checked against the source when the team is created or the id changes, so a
+typo fails the apply instead of creating a team nobody is paged from. Pagerly keeps the
+on-call in step with the source on its usual schedule; `current_oncall` shows the last read.
+
+Changing `schedule_id` or `source` updates the team in place. Switching between `rotation`
+and `sync` recreates the team.
+
 ## Schema
 
-Required: `name`, `timezone` (IANA), `rotation` (`users`, `frequency`; optional `day`, `time`, `start_date`).
+Required: `name`, and exactly one of:
+- `rotation` (`users`, `frequency`; optional `day`, `time`, `start_date`)
+- `sync` (`source`, `schedule_id`)
 
-Optional: `slack_channel`, `manager_id`, `jira_board`, `pagerduty_id`, `custom_slack_message`,
+Optional: `timezone` (IANA; required with `rotation`), `slack_channel`, `manager_id`, `jira_board`, `custom_slack_message`,
 `daily_message_time`, `update_slack_topic`, `show_change_notification`, `user_group` (Slack user
 group id, `S…`), `reminder` (`type`; optional `day`, `time`, `timezone`, `message_template`,
 `target`, `channel_list`).
 
 Read-only: `id`, `current_oncall`.
 
-Removing `reminder` turns the reminder off; removing `user_group` detaches it. A team whose
-on-call is synced from PagerDuty, Opsgenie or a calendar has no Pagerly rotation and cannot
-be managed here. Deleting the resource soft-deletes the team (recoverable from the dashboard).
+Removing `reminder` turns the reminder off; removing `user_group` detaches it. Deleting the
+resource soft-deletes the team (recoverable from the dashboard).
 
 Import: `terraform import pagerly_team.payments <team id>`

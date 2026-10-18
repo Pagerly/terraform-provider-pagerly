@@ -15,6 +15,12 @@ type Rotation struct {
 	StartDate string   `json:"start_date"`
 }
 
+// Sync is the external schedule a synced team follows.
+type Sync struct {
+	Source     string `json:"source"`
+	ScheduleID string `json:"schedule_id"`
+}
+
 // Reminder is a team's shift reminder.
 type Reminder struct {
 	Type            string `json:"type"`
@@ -34,13 +40,13 @@ type Team struct {
 	SlackChannel           string    `json:"slack_channel"`
 	ManagerID              string    `json:"manager_id"`
 	JiraBoard              string    `json:"jira_board"`
-	PagerdutyID            string    `json:"pagerduty_id"`
 	CustomSlackMessage     string    `json:"custom_slack_message"`
 	DailyMessageTime       string    `json:"daily_message_time"`
 	UpdateSlackTopic       bool      `json:"update_slack_topic"`
 	ShowChangeNotification bool      `json:"show_change_notification"`
 	UserGroup              string    `json:"user_group"`
 	Rotation               *Rotation `json:"rotation"`
+	Sync                   *Sync     `json:"sync"`
 	Reminder               *Reminder `json:"reminder"`
 	Deleted                bool      `json:"deleted"`
 	CurrentOncall          string    `json:"current_oncall"`

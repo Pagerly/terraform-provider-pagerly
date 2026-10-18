@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -10,6 +11,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/objectplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -19,9 +21,11 @@ import (
 )
 
 var (
-	_ resource.Resource                = &teamResource{}
-	_ resource.ResourceWithConfigure   = &teamResource{}
-	_ resource.ResourceWithImportState = &teamResource{}
+	_ resource.Resource                     = &teamResource{}
+	_ resource.ResourceWithConfigure        = &teamResource{}
+	_ resource.ResourceWithImportState      = &teamResource{}
+	_ resource.ResourceWithConfigValidators = &teamResource{}
+	_ resource.ResourceWithValidateConfig   = &teamResource{}
 )
 
 func newTeamResource() resource.Resource { return &teamResource{} }
@@ -37,13 +41,13 @@ type teamModel struct {
 	SlackChannel           types.String `tfsdk:"slack_channel"`
 	ManagerID              types.String `tfsdk:"manager_id"`
 	JiraBoard              types.String `tfsdk:"jira_board"`
-	PagerdutyID            types.String `tfsdk:"pagerduty_id"`
 	CustomSlackMessage     types.String `tfsdk:"custom_slack_message"`
 	DailyMessageTime       types.String `tfsdk:"daily_message_time"`
 	UpdateSlackTopic       types.Bool   `tfsdk:"update_slack_topic"`
 	ShowChangeNotification types.Bool   `tfsdk:"show_change_notification"`
 	UserGroup              types.String `tfsdk:"user_group"`
 	Rotation               types.Object `tfsdk:"rotation"`
+	Sync                   types.Object `tfsdk:"sync"`
 	Reminder               types.Object `tfsdk:"reminder"`
 	CurrentOncall          types.String `tfsdk:"current_oncall"`
 }
@@ -54,6 +58,16 @@ type rotationModel struct {
 	Day       types.String `tfsdk:"day"`
 	Time      types.String `tfsdk:"time"`
 	StartDate types.String `tfsdk:"start_date"`
+}
+
+type syncModel struct {
+	Source     types.String `tfsdk:"source"`
+	ScheduleID types.String `tfsdk:"schedule_id"`
+}
+
+var syncAttrTypes = map[string]attr.Type{
+	"source":      types.StringType,
+	"schedule_id": types.StringType,
 }
 
 type reminderModel struct {
@@ -99,7 +113,8 @@ func optionalComputedString(description string) schema.StringAttribute {
 
 func (r *teamResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "A Pagerly team with its round-robin on-call rotation. People are given as emails. " +
+		Description: "A Pagerly team: either a round-robin rotation run by Pagerly, or a team that follows an " +
+			"external schedule (PagerDuty, Opsgenie, Datadog, JSM Ops, Google Calendar). People are given as emails. " +
 			"Overrides, swaps and who is on call right now are runtime state and are not managed here.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
@@ -112,13 +127,13 @@ func (r *teamResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 				Required:    true,
 			},
 			"timezone": schema.StringAttribute{
-				Description: "IANA timezone the rotation hands over in, e.g. `Europe/London`.",
-				Required:    true,
+				Description: "IANA timezone the rotation hands over in, e.g. `Europe/London`. Required with `rotation`; " +
+					"optional with `sync`, where the source's own schedule decides the times.",
+				Optional: true,
 			},
 			"slack_channel":        optionalComputedString("Slack channel id the team's on-call updates are posted to."),
 			"manager_id":           optionalComputedString("Slack user id of the team's manager."),
 			"jira_board":           optionalComputedString("Jira board linked to the team."),
-			"pagerduty_id":         optionalComputedString("PagerDuty schedule id the team mirrors, if any."),
 			"custom_slack_message": optionalComputedString("Custom on-call change message."),
 			"daily_message_time":   optionalComputedString("Time of day the daily on-call message is sent, `HH:mm`."),
 			"update_slack_topic": schema.BoolAttribute{
@@ -139,8 +154,10 @@ func (r *teamResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 				Optional: true,
 			},
 			"rotation": schema.SingleNestedAttribute{
-				Description: "The round-robin rotation.",
-				Required:    true,
+				Description: "A Pagerly round-robin rotation. Set exactly one of `rotation` or `sync`; " +
+					"switching between them recreates the team.",
+				Optional:      true,
+				PlanModifiers: []planmodifier.Object{switchesKind()},
 				Attributes: map[string]schema.Attribute{
 					"users": schema.ListAttribute{
 						Description: "Emails of the people on the rotation, in on-call order.",
@@ -158,6 +175,26 @@ func (r *teamResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 						"(`Monday-Friday`, `Monday-Saturday`, `All 7 Days`); for Monthly the day of month (`1`–`31`)."),
 					"time":       optionalComputedString("Handover time, `HH:mm`, in the team's timezone."),
 					"start_date": optionalComputedString("ISO date the rotation starts from. Defaults to the day the team is created."),
+				},
+			},
+			"sync": schema.SingleNestedAttribute{
+				Description: "Follow an external schedule instead of a Pagerly rotation. The source must be connected " +
+					"under Scheduling Integrations in Pagerly. Set exactly one of `rotation` or `sync`.",
+				Optional:      true,
+				PlanModifiers: []planmodifier.Object{switchesKind()},
+				Attributes: map[string]schema.Attribute{
+					"source": schema.StringAttribute{
+						Description: "`pagerduty`, `opsgenie`, `datadog`, `jsmops` or `gcal`.",
+						Required:    true,
+						Validators: []validator.String{
+							stringvalidator.OneOfCaseInsensitive("pagerduty", "opsgenie", "datadog", "jsmops", "gcal"),
+						},
+					},
+					"schedule_id": schema.StringAttribute{
+						Description: "The schedule's id in the source (e.g. a PagerDuty schedule id `PABC123`, an Opsgenie " +
+							"schedule id, a Google Calendar id).",
+						Required: true,
+					},
 				},
 			},
 			"reminder": schema.SingleNestedAttribute{
@@ -187,6 +224,40 @@ func (r *teamResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 	}
 }
 
+func (r *teamResource) ConfigValidators(_ context.Context) []resource.ConfigValidator {
+	return []resource.ConfigValidator{
+		resourcevalidator.ExactlyOneOf(path.MatchRoot("rotation"), path.MatchRoot("sync")),
+	}
+}
+
+// ValidateConfig: a rotation hands over at a wall-clock time, so it needs a timezone.
+func (r *teamResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var cfg teamModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &cfg)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if !cfg.Rotation.IsNull() && !cfg.Rotation.IsUnknown() && cfg.Timezone.IsNull() {
+		resp.Diagnostics.AddAttributeError(path.Root("timezone"), "Missing timezone",
+			"A team with a rotation needs a timezone, e.g. \"Europe/London\".")
+	}
+}
+
+// switchesKind recreates the team when it moves between a Pagerly rotation and an external
+// schedule: the API refuses to convert one into the other in place.
+func switchesKind() planmodifier.Object {
+	return objectplanmodifier.RequiresReplaceIf(
+		func(_ context.Context, req planmodifier.ObjectRequest, resp *objectplanmodifier.RequiresReplaceIfFuncResponse) {
+			if req.State.Raw.IsNull() {
+				return
+			}
+			resp.RequiresReplace = req.StateValue.IsNull() != req.PlanValue.IsNull()
+		},
+		"Switching between rotation and sync recreates the team.",
+		"Switching between `rotation` and `sync` recreates the team.",
+	)
+}
+
 func (r *teamResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	r.client = clientFrom(req, &resp.Diagnostics)
 }
@@ -195,14 +266,15 @@ func (r *teamResource) Configure(_ context.Context, req resource.ConfigureReques
 func (r *teamResource) body(ctx context.Context, plan *teamModel) (map[string]any, diag.Diagnostics) {
 	var diags diag.Diagnostics
 	body := map[string]any{
-		"name":     plan.Name.ValueString(),
-		"timezone": plan.Timezone.ValueString(),
+		"name": plan.Name.ValueString(),
+	}
+	if p := strPtr(plan.Timezone); p != nil {
+		body["timezone"] = *p
 	}
 	for key, v := range map[string]types.String{
 		"slack_channel":        plan.SlackChannel,
 		"manager_id":           plan.ManagerID,
 		"jira_board":           plan.JiraBoard,
-		"pagerduty_id":         plan.PagerdutyID,
 		"custom_slack_message": plan.CustomSlackMessage,
 		"daily_message_time":   plan.DailyMessageTime,
 	} {
@@ -219,25 +291,35 @@ func (r *teamResource) body(ctx context.Context, plan *teamModel) (map[string]an
 	// Null means "no user group": the API detaches one that is set.
 	body["user_group"] = strPtr(plan.UserGroup)
 
-	var rotation rotationModel
-	diags.Append(plan.Rotation.As(ctx, &rotation, basetypesObjectAsOptions)...)
-	if diags.HasError() {
-		return nil, diags
-	}
-	users, d := stringList(ctx, rotation.Users)
-	diags.Append(d...)
-	rot := map[string]any{
-		"users":     users,
-		"frequency": rotation.Frequency.ValueString(),
-	}
-	for key, v := range map[string]types.String{
-		"day": rotation.Day, "time": rotation.Time, "start_date": rotation.StartDate,
-	} {
-		if p := strPtr(v); p != nil {
-			rot[key] = *p
+	if !plan.Sync.IsNull() && !plan.Sync.IsUnknown() {
+		var sync syncModel
+		diags.Append(plan.Sync.As(ctx, &sync, basetypesObjectAsOptions)...)
+		body["sync"] = map[string]any{
+			"source":      sync.Source.ValueString(),
+			"schedule_id": sync.ScheduleID.ValueString(),
 		}
 	}
-	body["rotation"] = rot
+	if !plan.Rotation.IsNull() && !plan.Rotation.IsUnknown() {
+		var rotation rotationModel
+		diags.Append(plan.Rotation.As(ctx, &rotation, basetypesObjectAsOptions)...)
+		if diags.HasError() {
+			return nil, diags
+		}
+		users, d := stringList(ctx, rotation.Users)
+		diags.Append(d...)
+		rot := map[string]any{
+			"users":     users,
+			"frequency": rotation.Frequency.ValueString(),
+		}
+		for key, v := range map[string]types.String{
+			"day": rotation.Day, "time": rotation.Time, "start_date": rotation.StartDate,
+		} {
+			if p := strPtr(v); p != nil {
+				rot[key] = *p
+			}
+		}
+		body["rotation"] = rot
+	}
 
 	if plan.Reminder.IsNull() || plan.Reminder.IsUnknown() {
 		body["reminder"] = nil
@@ -268,7 +350,6 @@ func (r *teamResource) fill(ctx context.Context, m *teamModel, t *client.Team) d
 	m.SlackChannel = strValue(t.SlackChannel)
 	m.ManagerID = strValue(t.ManagerID)
 	m.JiraBoard = strValue(t.JiraBoard)
-	m.PagerdutyID = strValue(t.PagerdutyID)
 	m.CustomSlackMessage = strValue(t.CustomSlackMessage)
 	m.DailyMessageTime = strValue(t.DailyMessageTime)
 	m.UpdateSlackTopic = types.BoolValue(t.UpdateSlackTopic)
@@ -298,6 +379,21 @@ func (r *teamResource) fill(ctx context.Context, m *teamModel, t *client.Team) d
 		})
 		diags.Append(d...)
 		m.Rotation = obj
+	}
+
+	if t.Sync == nil {
+		m.Sync = types.ObjectNull(syncAttrTypes)
+	} else {
+		var priorSync syncModel
+		if !m.Sync.IsNull() && !m.Sync.IsUnknown() {
+			diags.Append(m.Sync.As(ctx, &priorSync, basetypesObjectAsOptions)...)
+		}
+		obj, d := types.ObjectValueFrom(ctx, syncAttrTypes, syncModel{
+			Source:     keepFold(priorSync.Source, t.Sync.Source),
+			ScheduleID: strValue(t.Sync.ScheduleID),
+		})
+		diags.Append(d...)
+		m.Sync = obj
 	}
 
 	if t.Reminder == nil {

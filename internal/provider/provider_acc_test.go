@@ -2,12 +2,14 @@ package provider
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/knownvalue"
+	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/statecheck"
 	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
 )
@@ -66,6 +68,15 @@ resource "pagerly_oncall_group" "backend" {
   permanent_users = ["Alice@Co.com"]
 }
 
+resource "pagerly_team" "infra" {
+  name     = "Infra"
+  timezone = "UTC"
+  sync = {
+    source      = "PagerDuty"
+    schedule_id = "PABC123"
+  }
+}
+
 data "pagerly_team" "lookup" {
   name       = "payments"
   depends_on = [pagerly_team.payments]
@@ -113,7 +124,16 @@ resource "pagerly_service" "checkout" {
 
 resource "pagerly_oncall_group" "backend" {
   name     = "Backend Core"
-  team_ids = [pagerly_team.payments.id]
+  team_ids = [pagerly_team.payments.id, pagerly_team.infra.id]
+}
+
+resource "pagerly_team" "infra" {
+  name     = "Infra"
+  timezone = "UTC"
+  sync = {
+    source      = "pagerduty"
+    schedule_id = "PXYZ789"
+  }
 }
 `
 
@@ -140,6 +160,8 @@ func TestAccProvider_fullLifecycle(t *testing.T) {
 					statecheck.ExpectKnownValue("pagerly_alert_integration.datadog", tfjsonpath.New("webhook_url"), knownvalue.NotNull()),
 					statecheck.ExpectKnownValue("pagerly_user.bob", tfjsonpath.New("role"), knownvalue.StringExact("member")),
 					statecheck.ExpectKnownValue("data.pagerly_team.lookup", tfjsonpath.New("name"), knownvalue.StringExact("Payments")),
+					statecheck.ExpectKnownValue("pagerly_team.infra", tfjsonpath.New("sync").AtMapKey("source"), knownvalue.StringExact("PagerDuty")),
+					statecheck.ExpectKnownValue("pagerly_team.infra", tfjsonpath.New("rotation"), knownvalue.Null()),
 				},
 			},
 			// A second plan of the same configuration must be empty: that is drift detection.
@@ -172,9 +194,32 @@ func TestAccProvider_fullLifecycle(t *testing.T) {
 					statecheck.ExpectKnownValue("pagerly_alert_integration.datadog", tfjsonpath.New("rules"), knownvalue.Null()),
 					statecheck.ExpectKnownValue("pagerly_oncall_group.backend", tfjsonpath.New("id"), knownvalue.StringExact("Backend Core")),
 					statecheck.ExpectKnownValue("pagerly_user.bob", tfjsonpath.New("name"), knownvalue.StringExact("Robert")),
+					statecheck.ExpectKnownValue("pagerly_team.infra", tfjsonpath.New("sync").AtMapKey("schedule_id"), knownvalue.StringExact("PXYZ789")),
+				},
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction("pagerly_team.infra", plancheck.ResourceActionUpdate),
+					},
 				},
 			},
 			{Config: updatedConfig, PlanOnly: true, ExpectNonEmptyPlan: false},
+			{
+				Config: strings.Replace(updatedConfig, `sync = {
+    source      = "pagerduty"
+    schedule_id = "PXYZ789"
+  }`, `rotation = {
+    users     = ["Alice@Co.com"]
+    frequency = "Daily"
+  }`, 1),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction("pagerly_team.infra", plancheck.ResourceActionDestroyBeforeCreate),
+					},
+				},
+				ConfigStateChecks: []statecheck.StateCheck{
+					statecheck.ExpectKnownValue("pagerly_team.infra", tfjsonpath.New("sync"), knownvalue.Null()),
+				},
+			},
 		},
 	})
 }

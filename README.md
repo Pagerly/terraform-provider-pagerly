@@ -55,6 +55,16 @@ resource "pagerly_alert_integration" "datadog" {
   escalation_id = pagerly_escalation_policy.payments_p1.id
 }
 
+# A team that follows an existing PagerDuty schedule
+resource "pagerly_team" "platform" {
+  name     = "Platform"
+  timezone = "UTC"
+  sync = {
+    source      = "pagerduty"
+    schedule_id = "PABC123"
+  }
+}
+
 output "datadog_webhook_url" {
   value = pagerly_alert_integration.datadog.webhook_url
 }
@@ -71,7 +81,7 @@ provider at another host (defaults to `https://api.pagerly.io`).
 
 | Resource | Manages |
 |---|---|
-| `pagerly_team` | A team: settings, round-robin rotation, shift reminder, Slack user group |
+| `pagerly_team` | A team: settings, shift reminder, Slack user group, and either a round-robin rotation or a sync from PagerDuty / Opsgenie / Datadog / JSM Ops / Google Calendar |
 | `pagerly_escalation_policy` | Up to three layers of who is paged and how long to wait |
 | `pagerly_alert_integration` | An inbound alert webhook, where its alerts go, and its routing rules |
 | `pagerly_service` | A service / component with its owning team and escalation policy |

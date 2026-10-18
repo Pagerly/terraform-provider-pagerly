@@ -163,6 +163,9 @@ func (f *fakeAPI) describeTeam(m map[string]any) map[string]any {
 		"update_slack_topic": m["update_slack_topic"] == true, "show_change_notification": m["show_change_notification"] == true,
 		"user_group": m["user_group"], "reminder": m["reminder"], "deleted": false, "current_oncall": "alice@co.com",
 	}
+	if sync, ok := m["sync"].(map[string]any); ok && m["rotation"] == nil {
+		out["sync"] = map[string]any{"source": strings.ToLower(fmt.Sprint(sync["source"])), "schedule_id": sync["schedule_id"]}
+	}
 	if rot, ok := m["rotation"].(map[string]any); ok {
 		users := []any{}
 		if u, ok := rot["users"].([]any); ok {
