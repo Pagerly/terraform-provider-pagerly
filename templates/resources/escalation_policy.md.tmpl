@@ -1,0 +1,36 @@
+---
+page_title: "{{.Name}} {{.Type}} - {{.ProviderName}}"
+subcategory: ""
+description: |-
+{{ .Description | plainmarkdown | trimspace | prefixlines "  " }}
+---
+
+# {{.Name}} ({{.Type}})
+
+Who is paged, in up to three layers, and how long to wait between them.
+
+## Example Usage
+
+```hcl
+resource "pagerly_escalation_policy" "payments_p1" {
+  name = "Payments P1"
+  layer = [
+    { team_id = pagerly_team.payments.id, wait_minutes = 5 },
+    { people = ["cto@example.com"], wait_minutes = 10 },
+    { team_id = pagerly_team.platform.id },
+  ]
+  repeat        = 1
+  slack_channel = "C0123456789"
+}
+```
+
+A policy that an alert integration still sends alerts to cannot be deleted; point the
+integration elsewhere first.
+
+{{ .SchemaMarkdown | trimspace }}
+
+## Import
+
+```shell
+terraform import pagerly_escalation_policy.payments_p1 <policy id>
+```

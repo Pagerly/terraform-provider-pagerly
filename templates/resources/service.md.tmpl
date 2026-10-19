@@ -1,0 +1,29 @@
+---
+page_title: "{{.Name}} {{.Type}} - {{.ProviderName}}"
+subcategory: ""
+description: |-
+{{ .Description | plainmarkdown | trimspace | prefixlines "  " }}
+---
+
+# {{.Name}} ({{.Type}})
+
+A service (component) incidents are raised against.
+
+## Example Usage
+
+```hcl
+resource "pagerly_service" "checkout" {
+  name          = "Checkout"
+  team_id       = pagerly_team.payments.id
+  escalation_id = pagerly_escalation_policy.payments_p1.id
+  status        = "active"
+}
+```
+
+{{ .SchemaMarkdown | trimspace }}
+
+## Import
+
+```shell
+terraform import pagerly_service.checkout <service id>
+```

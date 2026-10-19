@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - run: go vet ./...
+      - run: go build -v .
+
+      - name: GoReleaser config is valid
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: check
+
+  docs:
+    # docs/ is generated from templates/ and the provider schema; fail if it is stale.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+
+      - run: go run github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs@v0.25.0 generate --provider-name pagerly
+      - run: go run github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs@v0.25.0 validate --provider-name pagerly
+
+      - name: docs/ is up to date
+        run: |
+          git add -N docs
+          git diff --exit-code docs || {
+            echo "::error::docs/ is stale. Run tfplugindocs generate (see README, Developing) and commit the result."
+            exit 1
+          }
+
+  acceptance:
+    # Drives every resource through the in-memory fake API, against both CLIs.
+    name: acceptance (${{ matrix.cli }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - cli: terraform
+            provider_host: ''
+            provider_namespace: ''
+          - cli: tofu
+            provider_host: registry.opentofu.org
+            provider_namespace: hashicorp
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - if: matrix.cli == 'terraform'
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+
+      - if: matrix.cli == 'tofu'
+        uses: opentofu/setup-opentofu@v2
+        with:
+          tofu_wrapper: false
+
+      - name: go test
+        env:
+          TF_ACC: '1'
+          TF_ACC_PROVIDER_HOST: ${{ matrix.provider_host }}
+          TF_ACC_PROVIDER_NAMESPACE: ${{ matrix.provider_namespace }}
+        run: |
+          TF_ACC_TERRAFORM_PATH="$(command -v "${{ matrix.cli }}")" go test ./... -v -timeout 15m

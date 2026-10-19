@@ -1,0 +1,22 @@
+---
+page_title: "{{.Name}} {{.Type}} - {{.ProviderName}}"
+subcategory: ""
+description: |-
+{{ .Description | plainmarkdown | trimspace | prefixlines "  " }}
+---
+
+# {{.Name}} ({{.Type}})
+
+Who is on call right now, for one team or all teams.
+
+## Example Usage
+
+```hcl
+data "pagerly_oncall" "payments" {
+  team_id = pagerly_team.payments.id
+}
+
+output "oncall_email" { value = data.pagerly_oncall.payments.oncall[0].email }
+```
+
+{{ .SchemaMarkdown | trimspace }}

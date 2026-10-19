@@ -1,0 +1,38 @@
+---
+page_title: "Pagerly Provider"
+description: |-
+  Manage Pagerly on-call configuration as code.
+---
+
+# Pagerly Provider
+
+Manage Pagerly teams and rotations, escalation policies, alert integrations, services,
+group on-calls and the user directory from Terraform or OpenTofu.
+
+## Authentication
+
+An organisation admin creates an API key in the Pagerly dashboard under **API Keys**.
+The key acts as the admin who created it. Pass it as `api_key` or in the
+`PAGERLY_API_KEY` environment variable.
+
+## Example Usage
+
+```hcl
+terraform {
+  required_providers {
+    pagerly = {
+      source = "pagerly/pagerly"
+    }
+  }
+}
+
+provider "pagerly" {
+  api_key = var.pagerly_api_key # or PAGERLY_API_KEY
+}
+```
+
+Overrides, shift swaps, incidents and who is on call are runtime state, not
+configuration, and are not managed by this provider. Use the Pagerly MCP server or the
+dashboard for those.
+
+{{ .SchemaMarkdown | trimspace }}

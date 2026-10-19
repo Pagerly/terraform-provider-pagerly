@@ -1,0 +1,32 @@
+---
+page_title: "{{.Name}} {{.Type}} - {{.ProviderName}}"
+subcategory: ""
+description: |-
+{{ .Description | plainmarkdown | trimspace | prefixlines "  " }}
+---
+
+# {{.Name}} ({{.Type}})
+
+A group on-call (multi-mention team): one name that stands for the on-call of several
+teams, optionally keeping a Slack user group in step and always including some people.
+
+## Example Usage
+
+```hcl
+resource "pagerly_oncall_group" "backend" {
+  name            = "Backend"
+  team_ids        = [pagerly_team.payments.id, pagerly_team.platform.id]
+  user_group      = "S0123456789"
+  permanent_users = ["cto@example.com"]
+}
+```
+
+{{ .SchemaMarkdown | trimspace }}
+
+## Import
+
+The import id is the group's name.
+
+```shell
+terraform import pagerly_oncall_group.backend Backend
+```

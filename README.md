@@ -132,5 +132,15 @@ TF_ACC=1 TF_ACC_TERRAFORM_PATH=$(which tofu) \
 
 (With a Terraform binary instead of OpenTofu, drop the two `TF_ACC_PROVIDER_*` variables.)
 
+`docs/` is generated for the registry from `templates/` and the provider schema. Edit the
+template or the schema `Description`, then regenerate (needs `terraform` on the PATH, or it
+downloads one); CI fails if `docs/` is stale:
+
+```bash
+go run github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs@v0.25.0 generate --provider-name pagerly
+```
+
+Releases are cut by pushing a `v*` tag; see [PUBLISHING.md](PUBLISHING.md).
+
 The provider talks to Pagerly's `/api/v1` REST API, which lives in the backend
 repository under `services/apiv1`.

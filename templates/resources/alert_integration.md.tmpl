@@ -1,0 +1,55 @@
+---
+page_title: "{{.Name}} {{.Type}} - {{.ProviderName}}"
+subcategory: ""
+description: |-
+{{ .Description | plainmarkdown | trimspace | prefixlines "  " }}
+---
+
+# {{.Name}} ({{.Type}})
+
+An inbound alert source: a webhook URL a monitoring tool posts to, and where its alerts go.
+Set exactly one of `team_id` or `escalation_id`.
+
+## Example Usage
+
+```hcl
+resource "pagerly_alert_integration" "datadog" {
+  name          = "Datadog production"
+  source        = "datadog"
+  escalation_id = pagerly_escalation_policy.payments_p1.id   # or team_id
+  alert_only    = false
+
+  rules = jsonencode([
+    {
+      name       = "Ignore info"
+      conditions = [{ field = "severity", op = "is", value = "info" }]
+      action     = "ignore"
+    },
+    {
+      name       = "Database alerts to the DB team"
+      conditions = [{ field = "title", op = "contains", value = "postgres" }]
+      action     = "route"
+      teamid     = pagerly_team.database.id
+    },
+  ])
+}
+
+output "datadog_webhook" { value = pagerly_alert_integration.datadog.webhook_url }
+```
+
+### Routing rules
+
+`rules` is a JSON list checked in order against each alert. Each rule has:
+
+- `conditions`: a list of `{ field, op, value }`, where `field` is `severity`, `title`,
+  `description` or a payload path, and `op` is `is`, `is_not`, `contains` or `not_contains`.
+- `action`: `ignore` or `route`.
+- for `route`, a `teamid` or `escalationid`, and optionally `opens` = `incident` | `alert`.
+
+{{ .SchemaMarkdown | trimspace }}
+
+## Import
+
+```shell
+terraform import pagerly_alert_integration.datadog <integration id>
+```

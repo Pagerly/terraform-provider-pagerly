@@ -1,0 +1,33 @@
+---
+page_title: "{{.Name}} {{.Type}} - {{.ProviderName}}"
+subcategory: ""
+description: |-
+{{ .Description | plainmarkdown | trimspace | prefixlines "  " }}
+---
+
+# {{.Name}} ({{.Type}})
+
+A person in the on-call directory: who can be paged, and the number Pagerly dials.
+
+## Example Usage
+
+```hcl
+resource "pagerly_user" "alice" {
+  email        = "alice@example.com"
+  name         = "Alice"
+  phone_number = "+447700900123"   # or a bare number with country_code
+  role         = "member"
+}
+```
+
+Creating a user that already exists adopts it. Changing `role` needs an admin key.
+
+{{ .SchemaMarkdown | trimspace }}
+
+## Import
+
+The import id is the user's email.
+
+```shell
+terraform import pagerly_user.alice alice@example.com
+```
