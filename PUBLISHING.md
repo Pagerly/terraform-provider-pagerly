@@ -21,7 +21,7 @@ The registry namespace is the GitHub owner of the repo, lowercased. Customers wr
 
 | Repo lives at | Customers write | Notes |
 |---|---|---|
-| `Pagerly/terraform-provider-pagerly` | `pagerly/pagerly` | **Recommended.** The `Pagerly` org already exists on GitHub (created 2022, no public repos). Matches the Go module path, `main.go`, the README and the dashboard/landing copy. |
+| `Pagerly/terraform-provider-pagerly` | `pagerly/pagerly` | **Recommended.** The `Pagerly` GitHub org already exists and Falit is its sole owner (Mansi Gera, `Mansigera14`, is a member), so the namespace is ours. Matches the Go module path, `main.go`, the README and the dashboard/landing copy. |
 | `Falit/terraform-provider-pagerly` (today) | `falit/pagerly` | Every `pagerly/pagerly` in `main.go`, README, `docs/`, `templates/`, the dashboard and the landing site would need changing. |
 
 To move it: GitHub → the repo → **Settings → General → Danger Zone → Transfer ownership**
@@ -73,8 +73,9 @@ GitHub → the repo → **Settings → Secrets and variables → Actions → New
 
 The workflow reads the fingerprint from the imported key, so there is no fingerprint secret.
 
-Or with `gh`, if your token can see the repo (the `Pagerly` org rejects fine-grained tokens
-that live longer than 366 days):
+Or with `gh`, if your token can see the repo. The `Pagerly` org rejects fine-grained tokens
+that live longer than 366 days, so a long-lived token gets a 403 there; use the web UI or a
+shorter-lived token:
 
 ```bash
 gpg --armor --export-secret-keys <FINGERPRINT> | gh secret set GPG_PRIVATE_KEY --repo Pagerly/terraform-provider-pagerly
